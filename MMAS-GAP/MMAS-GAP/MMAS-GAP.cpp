@@ -6,7 +6,7 @@
 #include <random>
 #include <iomanip>
 using namespace std;
-
+ 
 int M;
 int* *d;
 long double* *feromoni;
@@ -175,16 +175,16 @@ public:
 	AgentZaRjesenje *agentiZaRjesenje;//polje za agente
 	long double *granice;//polje za granice
 
-											 /*
-											 funkcija raèuna sumu feromona ukoliko bude potrebno raèunati vjerojatnosti da im je zbroj = 1
-											 long double IzracunajSumuFeromona(int agent, bool *posaoDodjeljen) {
-											 long double suma = 0;
-											 for (int i = 0; i<brojPoslova; i++)
-											 if (posaoDodjeljen[i]) continue;
-											 else suma += feromoni[agent][i];
-											 return suma;
-											 }
-											 */
+	/*
+	funkcija raèuna sumu feromona ukoliko bude potrebno raèunati vjerojatnosti da im je zbroj = 1
+	long double IzracunajSumuFeromona(int agent, bool *posaoDodjeljen) {
+	long double suma = 0;
+	for (int i = 0; i<brojPoslova; i++)
+	if (posaoDodjeljen[i]) continue;
+	else suma += feromoni[agent][i];
+	return suma;
+	}
+	*/
 
 	void GenerirajRjesenje() {
 		//priprema:
@@ -210,6 +210,7 @@ public:
 			if (j == 0) {//ukoliko se nijednom agentu ne može dodijeliti ovaj posao (jer nemaju kapaciteta):
 				EvidentirajDodjelu(posloviZaRjesenje[i], i, agentiZaRjesenje, rand() % brojAgenata);//onda evidentiramo dodjelu ali "nasumiènom" agentu
 				this->nesiplativoRjesenje = true;//te oznaèavamo rješenje kao neisplativo/nemoguæe
+				continue;
 			}
 
 			uniform_real_distribution<> distr(0, granice[j]);//postavljamo granice generiranja broja (od 0 do zadnje granice)
