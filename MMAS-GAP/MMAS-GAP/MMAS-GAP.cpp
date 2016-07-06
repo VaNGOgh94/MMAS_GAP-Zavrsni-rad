@@ -486,12 +486,16 @@ void IspisiRjesenjeProblema() {
 }
 
 int main() {
+	
 	cout << fixed << setprecision(3);
 	srand(time(0) % 32768);
 	rand();
 	init();
 	cout << "Koliko iteracija želite: ";
 	cin >> iter_max;
+
+	time_t  pocetak;
+	time(&pocetak);
 
 	int najboljiMravIteracije;
 	for (int iter = 1; iter<iter_max; iter++) {
@@ -500,21 +504,47 @@ int main() {
 		}
 
 		najboljiMravIteracije = PronadiNajboljegMrava();
-		cout << "Najbolje rješenje iteracije: " << mravi[najboljiMravIteracije].trosakRjesenja << endl;
+		//cout << "Najbolje rješenje iteracije: " << mravi[najboljiMravIteracije].trosakRjesenja << endl;
 
 		if (mravi[najboljiMravIteracije].trosakRjesenja < najmanjiTrosakDosad) {//ako je rješenje iteracije bolje od najboljeg dosada:
 			memcpy(najboljeRjesenjeDosad, mravi[najboljiMravIteracije].rjesenje, sizeof(Dodjela)*brojPoslova);//zapisujemo to rješenje
 			najmanjiTrosakDosad = mravi[najboljiMravIteracije].trosakRjesenja;//bilježimo nejgov rezultat
 			tauMAX = 1 / (param_RO*najmanjiTrosakDosad);//podešavamo tauMAX i tauMIN
 			tauMIN = 1 / (tauMAX*param_a);
-			cout << "Imamo novo najbolje dosadašnje rješenje iteracije: " << najmanjiTrosakDosad << endl;
-			IspisiStanjeFeromona();
+			//cout << "Imamo novo najbolje dosadašnje rješenje iteracije: " << najmanjiTrosakDosad << endl;
+			//IspisiStanjeFeromona();
 		}
 		SimulirajHlapljenjeFeromona();
 		NagradiNajboljeg(najboljiMravIteracije);
 	}
+
+	time_t kraj;
+	time(&kraj);
+
+	struct tm * timeInfoPocetak = new tm;
+	struct tm * timeInfoKraj = new tm;
+	char bufferPocetak[80];
+	char bufferKraj[80];
+
+	localtime_s(timeInfoPocetak, &pocetak);
+	localtime_s(timeInfoKraj,&kraj);
+	strftime(bufferPocetak, 80, "Now it's %c.", timeInfoPocetak);
+	strftime(bufferKraj, 80, "Now it's %c.", timeInfoKraj);
+
+	int protekloVrijemeSekunde = difftime(kraj, pocetak);
 	IspisiRjesenjeProblema();
+
+	cout << "Vrijeme pocetka: " << bufferPocetak << endl;
+	cout << "Vrijeme kraja" << bufferKraj << endl;
+
+	int sati = protekloVrijemeSekunde / 3600;
+	int minute = (protekloVrijemeSekunde % 3600) / 60;
+	int sekunde = protekloVrijemeSekunde % 60;
+
+	cout << "Trajanje algoritma: " << sati<<":"<<minute<<":"<<sekunde << endl;
 	cout << endl << endl;
+
+
 
 	delete[] najboljeRjesenjeDosad;
 	for (int i = 0; i < brojAgenata; i++) {
