@@ -521,21 +521,23 @@ int main() {
 	time_t kraj;
 	time(&kraj);
 
+	IspisiRjesenjeProblema();
+
+
 	struct tm * timeInfoPocetak = new tm;
 	struct tm * timeInfoKraj = new tm;
 	char bufferPocetak[80];
 	char bufferKraj[80];
 
 	localtime_s(timeInfoPocetak, &pocetak);
-	localtime_s(timeInfoKraj,&kraj);
-	strftime(bufferPocetak, 80, "Now it's %c.", timeInfoPocetak);
-	strftime(bufferKraj, 80, "Now it's %c.", timeInfoKraj);
+	localtime_s(timeInfoKraj, &kraj);
+	strftime(bufferPocetak, 80, "%c.", timeInfoPocetak);
+	strftime(bufferKraj, 80, "%c.", timeInfoKraj);
 
 	int protekloVrijemeSekunde = difftime(kraj, pocetak);
-	IspisiRjesenjeProblema();
 
-	cout << "Vrijeme pocetka: " << bufferPocetak << endl;
-	cout << "Vrijeme kraja" << bufferKraj << endl;
+	cout << "Vrijeme pocetka:  " << bufferPocetak << endl;
+	cout << "Vrijeme kraja  " << bufferKraj << endl;
 
 	int sati = protekloVrijemeSekunde / 3600;
 	int minute = (protekloVrijemeSekunde % 3600) / 60;
