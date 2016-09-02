@@ -1,0 +1,1 @@
+3.8. - pokušati sljedeæe - kada se dobije novo najbolje rješenje, da se feromoni za njega poveæa za theta*tauMAX gdje je theta od 0-1 

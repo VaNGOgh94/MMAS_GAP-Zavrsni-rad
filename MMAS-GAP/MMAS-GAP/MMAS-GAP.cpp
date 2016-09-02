@@ -8,10 +8,19 @@
 #include <fstream>
 #define PRESKOCI_NEISPLATIVA_RJESENJA 0
 #define UKLJUCI_NEISPLATIVA_RJESENJA 1
+#define NEHEURISTICNO 0
+#define HEURISTICNO_DIJ 1
 using namespace std;
- 
+int ukupanBrojIsplativih;
+int ukupanBrojNeisplativih;
+int *svaRjesenja;
+int *svaIsplativaRjesenja;
+int *najboljaRjesenja;
+tm *paljenjePrograma;
+
 int broj_mrava;
-int* *d;
+int* *d;//cijene
+int* *r;//tezine
 long double* *feromoni;
 long double tauMAX;
 long double tauMIN;
@@ -23,6 +32,10 @@ long double param_RO;
 
 int brojAgenata;
 int brojPoslova;
+long double isplativoMult;
+long double neisplativoMult;
+mt19937 gen(random_device{}());//generator brojeva
+bool prekoNoci;
 
 struct Dodjela {//struktura koja bilježi dodjelu posla agentu (možda se može matrica napraviti umjesto ovoga)
 	int agent;
@@ -33,7 +46,6 @@ struct Dodjela {//struktura koja bilježi dodjelu posla agentu (možda se može mat
 class Agent {
 public:
 	int radnoVrijeme;
-	int *cijenePoslova;//alternativa matrici "D¢ij", svaki agent ima popis cijena za svaki posao... po potrebi se rješenje može napraviti i sa matricom
 	int ID;
 }*agenti;
 
@@ -59,63 +71,42 @@ private:
 	struct AgentZaRjesenje {
 		Agent *agent;
 		int preostaloVrijeme;
-		int rbrAgenta;
 		AgentZaRjesenje() :
 			agent(NULL) {
 		};
 	};
 	/*
 	int PronadiPosaoNajkracegTrajanja(PosaoZaRjesenje *posloviZaRjesenje) {
-	int min = 0;
-	//int vrij
-	for (int i = 1; i<brojPoslova; i++) {
-	if (!posloviZaRjesenje[i].posaoDodjeljen)
-	if (poslovi[i].trajanje<poslovi[min].trajanje)
-	min = i;
-	}
-	return min;
-	}
-	*/
-	/*
-	int DajNasumicniPosao(PosaoZaRjesenje *posloviZaRjesenje) {//metoda služi da se dobije "random" NEDODIJELJENI posao kojeg æemo dodijeliti negdje
-	int ind = 0;
-	do {
-	ind = rand() % brojPoslova;
-	}while (posloviZaRjesenje[ind].posaoDodjeljen);
-	return ind;
+		int min = 0;
+		//int vrij
+		for (int i = 1; i<brojPoslova; i++) {
+			if (!posloviZaRjesenje[i].posaoDodjeljen)
+			if (poslovi[i].trajanje<poslovi[min].trajanje)
+			min = i;
+		}
+		return min;
 	}
 	*/
+
 	//metoda miješa poslove (dakle simulira "nasumièni odabir")
-	void PromjesajPoslove(PosaoZaRjesenje *posloviZaRjesenje) {
-		int j;
-		PosaoZaRjesenje pom;
-		for (int i = 0; i<brojPoslova - 1; i++) {
+	void PromjesajRedoslijedPoslova() {
+		for (int i = 0, j, pom; i < brojPoslova - 1; i++) {
 			j = rand() % brojPoslova;
-			pom = posloviZaRjesenje[i];
-			posloviZaRjesenje[i] = posloviZaRjesenje[j];
-			posloviZaRjesenje[j] = pom;
+			pom = redoslijedPoslova[i];
+			redoslijedPoslova[i] = redoslijedPoslova[j];
+			redoslijedPoslova[j] = pom;
+			//swap(redoslijedPoslova[i], redoslijedPoslova[j]);
 		}
 	}
 	//metoda evidentira dodjelu, i smješta agenta udesno na njegovo mjesto (ovisno o preostalom kapacitetu)
 	//ovo je najisplativiji naèin pomoæu kojega "tražimo" odnosno "dobivamo" skup agenata koji imaju kapaciteta za tekuæi posao
-	void EvidentirajDodjelu(PosaoZaRjesenje tekuciPosao, int iteracija, AgentZaRjesenje *agentiZaRjesenje, int odabraniAgent) {
-		rjesenje[iteracija].posao = tekuciPosao.rbrPosla;
-		rjesenje[iteracija].agent = agentiZaRjesenje[odabraniAgent].agent->ID;
-		int k = odabraniAgent;
-		agentiZaRjesenje[k].preostaloVrijeme -= tekuciPosao.posao->trajanje;
-		this->trosakRjesenja += agentiZaRjesenje[k].agent->cijenePoslova[tekuciPosao.rbrPosla];
-		//POSTAVI AGENTA NA NJEGOVO MJESTO (šaljemo ga desno jer mu se kapacitet smanjio, polje treba biti sortirano od onih sa najviše kapaciteta prema onima sa najmanje)
-		if (k == brojAgenata - 1)
-			return;//ako se veæ nalazi na zadnjem (najdesnijem) mjestu nema potrebe da ga šaljemo desno (ne bi ni mogli, algoritam premještanja bi se rušio)
-
-						 //vlastiti algoritam premještanja, radi po uzoru na sortiranje umetanjem
-		int t = k + 1;
-		AgentZaRjesenje pom = agentiZaRjesenje[k];
-		while (t < brojAgenata && agentiZaRjesenje[t].preostaloVrijeme > pom.preostaloVrijeme)
-			agentiZaRjesenje[t - 1] = agentiZaRjesenje[t++];
-		agentiZaRjesenje[t - 1] = pom;
-
-
+	void EvidentirajDodjelu(int iteracija, int ai, int p) {
+		int a = agentiZaRjesenje[ai].agent->ID;
+		rjesenje[iteracija].posao = p;
+		rjesenje[iteracija].agent = a;
+		
+		agentiZaRjesenje[ai].preostaloVrijeme -= r[a][p];
+		this->trosakRjesenja += d[a][p];// agentiZaRjesenje[k].agent->cijenePoslova[tekuciPosao];
 		//ako imamo polje:
 		//0.  1.  2.  3.  4.  5.
 		//29  21  20  15  12  10  
@@ -151,25 +142,30 @@ private:
 		//29  21  15  12  11  10
 	}
 
+	void PremjestiAgenta(int a) {
+		//POSTAVI AGENTA NA NJEGOVO MJESTO (šaljemo ga desno jer mu se kapacitet smanjio, polje treba biti sortirano od onih sa najviše kapaciteta prema onima sa najmanje)
+		if (a == brojAgenata - 1)
+			return;//ako se veæ nalazi na zadnjem (najdesnijem) mjestu nema potrebe da ga šaljemo desno (ne bi ni mogli, algoritam premještanja bi se rušio)
+		//vlastiti algoritam premještanja, radi po uzoru na sortiranje umetanjem
+		AgentZaRjesenje pom = agentiZaRjesenje[a++];
+		while (a < brojAgenata && agentiZaRjesenje[a].preostaloVrijeme > pom.preostaloVrijeme)
+			agentiZaRjesenje[a - 1] = agentiZaRjesenje[a++];
+		agentiZaRjesenje[a - 1] = pom;
+		return;
+	}
+
+	int *redoslijedPoslova;
 public:
 	//potrebno je povezati polja nove proširene strukture sa 
 	//poljima osnovne strukture (pomoæu pokazivaèa, moglo 
 	//se možda i sa nasljeðivanjem al ovako se manje memorije zauzme)
 
 	//static poslovi i agenti - da ne bi svaki put vezao redne brojeve i pokazivaèe i sl., napravim to jednom a kasnije samo kopiram po potrebi (memcpy)
-	static PosaoZaRjesenje *inicijalniPoslovi;
 	static AgentZaRjesenje *inicijalniAgenti;
 	static void PostaviStatickaPolja() {
-		inicijalniPoslovi = new PosaoZaRjesenje[brojPoslova];
-		for (int i = 0; i < brojPoslova; i++) {
-			inicijalniPoslovi[i].posao = &poslovi[i];
-			inicijalniPoslovi[i].rbrPosla = i;
-		}
-
 		inicijalniAgenti = new AgentZaRjesenje[brojAgenata];
 		for (int i = 0; i < brojAgenata; i++) {
 			inicijalniAgenti[i].agent = &agenti[i];
-			inicijalniAgenti[i].rbrAgenta = agenti[i].ID;
 			inicijalniAgenti[i].preostaloVrijeme = inicijalniAgenti[i].agent->radnoVrijeme;
 		}
 	}
@@ -177,9 +173,10 @@ public:
 	Dodjela *rjesenje;//u polje dodjela bilježimo sve dodjele
 	bool nesiplativoRjesenje;//indikator je li rješenje isplativo ili ne
 	int trosakRjesenja;//trošak rješenja
-	PosaoZaRjesenje *posloviZaRjesenje;//polje za poslove
+	//PosaoZaRjesenje *posloviZaRjesenje;//polje za poslove
 	AgentZaRjesenje *agentiZaRjesenje;//polje za agente
 	long double *granice;//polje za granice
+	long double nasumicniBroj;
 
 	/*
 	funkcija raèuna sumu feromona ukoliko bude potrebno raèunati vjerojatnosti da im je zbroj = 1
@@ -197,68 +194,132 @@ public:
 		this->nesiplativoRjesenje = false;//resetiramo vrijednosti
 		this->trosakRjesenja = 0;
 
-		memcpy(posloviZaRjesenje, this->inicijalniPoslovi, sizeof(PosaoZaRjesenje)*brojPoslova);//kopiramo poslove iz statièkih polja
-		PromjesajPoslove(posloviZaRjesenje);//miješamo poslove
 		memcpy(agentiZaRjesenje, this->inicijalniAgenti, sizeof(AgentZaRjesenje)*brojAgenata);//kopiramo agente iz statièkih polja
-
-		long double nasumicniBroj;
-		mt19937 gen(random_device{}());//generator brojeva
-
-											//poèetak
-		for (int i = 0; i < brojPoslova; i++) {
-			int j = 0;//j nam služi kao brojaè i za granicu agenata (skup agenata koji mogu obaviti posao je od 0 do "j")
+		PromjesajRedoslijedPoslova();
+		
+		//poèetak
+		for (int i = 0, j=0, p; i < brojPoslova; i++) {
+			
+			//if (i == brojPoslova - 1){
+			//}
+			p = redoslijedPoslova[i];//p predstavlja posao
+			j = 0;//j nam služi kao brojaè i za granicu agenata (skup agenata koji mogu obaviti posao je od 0 do "j")
 			granice[j] = 0;//buduæi da kreiranje granica zahtjeva prethodne vrijednosti, na indeks "j" odnosno "0" postavljam
-			while (j < brojAgenata && agentiZaRjesenje[j].preostaloVrijeme >= posloviZaRjesenje[i].posao->trajanje) {//sve dok nismo prošli kroz sve agente ili dok nismo došli do prvog koji ima nedovoljan kapacitet(buduæi da su uvijek sortirani samo do njega trebamo iæi)
-				granice[j + 1] = granice[j] + feromoni[agentiZaRjesenje[j].agent->ID][i];//raèunamo granicu za trenutnog agenta (granice se mogu direktno raèunati pa nema potrebe raèunati vjerojatnosti, osim ako bi negdje to trebalo bilježiti za kasniju analizu)
+			while (j < brojAgenata && agentiZaRjesenje[j].preostaloVrijeme >= r[agentiZaRjesenje[j].agent->ID][p]) {
+				granice[j + 1] = granice[j] + feromoni[agentiZaRjesenje[j].agent->ID][p];//raèunamo granicu za trenutnog agenta (granice se mogu direktno raèunati pa nema potrebe raèunati vjerojatnosti, osim ako bi negdje to trebalo bilježiti za kasniju analizu)
 				j++;
 			}
-
-			if (j == 0) {//ukoliko se nijednom agentu ne može dodijeliti ovaj posao (jer nemaju kapaciteta):
-				EvidentirajDodjelu(posloviZaRjesenje[i], i, agentiZaRjesenje, rand() % brojAgenata);//onda evidentiramo dodjelu ali "nasumiènom" agentu
-				this->nesiplativoRjesenje = true;//te oznaèavamo rješenje kao neisplativo/nemoguæe
-				continue;
+			//while (j < brojAgenata && agentiZaRjesenje[j].preostaloVrijeme >= posloviZaRjesenje[i].posao->trajanje) {//sve dok nismo prošli kroz sve agente ili dok nismo došli do prvog koji ima nedovoljan kapacitet(buduæi da su uvijek sortirani samo do njega trebamo iæi)
+			//	granice[j + 1] = granice[j] + feromoni[agentiZaRjesenje[j].agent->ID][i];//raèunamo granicu za trenutnog agenta (granice se mogu direktno raèunati pa nema potrebe raèunati vjerojatnosti, osim ako bi negdje to trebalo bilježiti za kasniju analizu)
+			//	j++;
+			//}
+			/*
+			cout << "AGENTI " << endl;
+			for (int i = 0; i < brojAgenata; i++) {
+				cout << agentiZaRjesenje[i].agent->ID << " " << agentiZaRjesenje[i].preostaloVrijeme << "/" << agentiZaRjesenje[i].agent->radnoVrijeme << endl;
 			}
+			*/
+			if (j == 0) {//ukoliko se nijednom agentu ne može dodijeliti ovaj posao (jer nemaju kapaciteta):
+				int randAgent = rand()%brojAgenata;
+				EvidentirajDodjelu(i, randAgent, p);//onda evidentiramo dodjelu ali "nasumiènom" agentu
+				if(agentiZaRjesenje[randAgent].agent->ID == 2)
+					//cout << "Dodjeljen " << p << " (r" << r[agentiZaRjesenje[randAgent].agent->ID][p] << ") (d" << d[agentiZaRjesenje[randAgent].agent->ID][p] << ") agentu " << agentiZaRjesenje[randAgent].agent->ID << endl;
 
-			uniform_real_distribution<> distr(0, granice[j]);//postavljamo granice generiranja broja (od 0 do zadnje granice)
-			nasumicniBroj = distr(gen);//generiramo nasumièni broj
-
-			for (int k = 0; k < j; k++) {//tražimo kojeg smo agenta dobili sa nasumiènim brojem
-				if (nasumicniBroj <= granice[k + 1]) {//granice[0] je prazno pa stoga gledamo k+1 od granica
-					EvidentirajDodjelu(posloviZaRjesenje[i], i, agentiZaRjesenje, k);//kada ga pronaðemo, dodjelimo mu posao
-					break;
+				PremjestiAgenta(randAgent);
+				this->nesiplativoRjesenje = true;//te oznaèavamo rješenje kao neisplativo/nemoguæe
+				//continue;
+			}
+			else{
+				uniform_real_distribution<> distr(0, granice[j]);//postavljamo granice generiranja broja (od 0 do zadnje granice)
+				nasumicniBroj = distr(gen);//generiramo nasumièni broj
+			
+				for (int ai = 0; ai < j; ai++) {//tražimo kojeg smo agenta dobili sa nasumiènim brojem
+					if (nasumicniBroj <= granice[ai + 1]) {//granice[0] je prazno pa stoga gledamo k+1 od granica
+						EvidentirajDodjelu(i, ai, p);//kada ga pronaðemo, dodjelimo mu posao
+						//if(agentiZaRjesenje[ai].agent->ID == 2)
+						//	cout << "Dodjeljen " << p << " (r" << r[agentiZaRjesenje[ai].agent->ID][p] << ") (d"<< d[agentiZaRjesenje[ai].agent->ID][p] <<") agentu " << agentiZaRjesenje[ai].agent->ID<<endl;
+						PremjestiAgenta(ai);
+						break;
+					}
 				}
 			}
+
+			/*
+			cout << "GRANICE" << endl;
+			for (int i = 0; i < brojAgenata; i++) {
+			cout << granice[i + 1]<<endl;
+			}
+			cout << endl;
+			*/
+			/*
+			cout << "AGENTI " << endl;
+			for (int i = 0; i < brojAgenata; i++) {
+				if (agentiZaRjesenje[i].agent->ID == 2)
+					cout << agentiZaRjesenje[i].agent->ID << " " << agentiZaRjesenje[i].preostaloVrijeme << "/" << agentiZaRjesenje[i].agent->radnoVrijeme << endl;
+			}
+			
+			cout << endl;
+			*/
+
+			//cout << endl << endl;
+			//system("pause");
 		}
+		bool minus = false;
+		for (int i = 0; i < brojAgenata; i++) {
+			if (agentiZaRjesenje[i].preostaloVrijeme < 0)
+				minus = true;
+		}
+		if (minus)
+			ukupanBrojNeisplativih++;
+		else
+			ukupanBrojIsplativih++;
+
+		//if (this->nesiplativoRjesenje == false)
+		//  ukupanBrojIsplativih++;5
+		/*
+		cout << "AGENTI " << endl;
+		for (int i = 0; i < brojAgenata; i++) {
+			cout << agentiZaRjesenje[i].agent->ID << " " << agentiZaRjesenje[i].preostaloVrijeme << "/" << agentiZaRjesenje[i].agent->radnoVrijeme << endl;
+		}
+		cout << endl << endl;
+		cout << "GOTOVO " << endl;
+		system("pause");
+		*/
 	}
 
 	Mrav() {
 		rjesenje = new Dodjela[brojPoslova];
 		granice = new long double[brojAgenata + 1];//brojAgenata + 1, jer nam nultni indeks služi samo za zbrajanje
-		posloviZaRjesenje = new PosaoZaRjesenje[brojPoslova];
+		//posloviZaRjesenje = new PosaoZaRjesenje[brojPoslova];
 		agentiZaRjesenje = new AgentZaRjesenje[brojAgenata];
+		redoslijedPoslova = new int[brojPoslova];
+		for (int i = 0; i < brojPoslova; i++) {
+			redoslijedPoslova[i] = i;
+		}
 	};
 
 	~Mrav() {
 		delete[] rjesenje;
-		delete[] posloviZaRjesenje;
+		//delete[] posloviZaRjesenje;
 		delete[] agentiZaRjesenje;
 		delete[] granice;
+		delete[] redoslijedPoslova;
 	}
 };
 
-Mrav::PosaoZaRjesenje *Mrav::inicijalniPoslovi;//deklaracija statièkih atributa (pokazivaèa) klase Mrav
+//deklaracija statièkih atributa (pokazivaèa) klase Mrav
 Mrav::AgentZaRjesenje *Mrav::inicijalniAgenti;
 Mrav *mravi;
 
-void IspisiStanjeFeromona() {
-	cout << endl;
+void IspisiStanjeFeromona(int p = brojPoslova, int a = brojAgenata) {
+	cout << fixed<<setprecision(6)<<endl;
 	cout << "    ";
-	for (int i = 0; i<brojPoslova; i++)
-		cout << "P" << i + 1 << "     ";
+	for (int i = 0; i<p; i++)
+		cout << "P" << i + 1 << "        ";
 	cout << endl << endl;;
-	for (int i = 0; i<brojAgenata; i++) {
+	for (int i = 0; i<a; i++) {
 		cout << "A" << i + 1 << "  ";
-		for (int j = 0; j<brojPoslova; j++)
+		for (int j = 0; j<p; j++)
 			cout << feromoni[i][j] << "  ";
 		cout << endl;
 	}
@@ -291,9 +352,9 @@ void SortirajAgentePoOznaci() {
 
 int PronadiNajboljegMrava(int uvjetPretrage) {
 	int max = 0;
-	for (int i = 1; i < broj_mrava; i++){
-		if(uvjetPretrage == UKLJUCI_NEISPLATIVA_RJESENJA)
-			if (mravi[i].nesiplativoRjesenje) 
+	for (int i = 1; i < broj_mrava; i++) {
+		if (uvjetPretrage == PRESKOCI_NEISPLATIVA_RJESENJA)
+			if (mravi[i].nesiplativoRjesenje)
 				continue;
 		if (mravi[i].trosakRjesenja < mravi[max].trosakRjesenja) {
 			max = i;
@@ -313,110 +374,108 @@ void SimulirajHlapljenjeFeromona() {
 	}
 }
 
+int brojNeisplativihRjesenja = 0;
 void NagradiNajboljeg(int najboljiMrav) {
+	tauMIN;
 	Dodjela *rjesenje = mravi[najboljiMrav].rjesenje;
+	long double nagrada = 0;
 	if (mravi[najboljiMrav].nesiplativoRjesenje) {
-		for (int i = 0; i < brojPoslova; i++) {
-			if (feromoni[rjesenje[i].agent][rjesenje[i].posao] + 0.01 > tauMAX)
-				feromoni[rjesenje[i].agent][rjesenje[i].posao] = tauMAX;
-			else
-				feromoni[rjesenje[i].agent][rjesenje[i].posao] += 0.01;
-		}
+		nagrada = neisplativoMult / (long double)mravi[najboljiMrav].trosakRjesenja;
+		nagrada = 0.01;
+		brojNeisplativihRjesenja++;
 	}
-
 	else {
-		for (int i = 0; i < brojPoslova; i++) {
-			if (feromoni[rjesenje[i].agent][rjesenje[i].posao] + 0.05 > tauMAX)
-				feromoni[rjesenje[i].agent][rjesenje[i].posao] = tauMAX;
-			else
-				feromoni[rjesenje[i].agent][rjesenje[i].posao] += 0.05;
-		}
+		nagrada = isplativoMult / (long double)mravi[najboljiMrav].trosakRjesenja;
+		nagrada = 0.05;
+	}
+	nagrada = 1/(long double)mravi[najboljiMrav].trosakRjesenja;
+	if (!mravi[najboljiMrav].nesiplativoRjesenje) {
+		//nagrada = tauMAX / 3;
+	}
+	for (int i = 0; i < brojPoslova; i++) {
+		if (feromoni[rjesenje[i].agent][rjesenje[i].posao] + nagrada > tauMAX)
+			feromoni[rjesenje[i].agent][rjesenje[i].posao] = tauMAX;
+		else
+			feromoni[rjesenje[i].agent][rjesenje[i].posao] += nagrada;
 	}
 }
 
 Dodjela *najboljeRjesenjeDosad;
 int najmanjiTrosakDosad;
 
-
 char nazivDatotekeProblema[100];
 
-bool ProcitajProblemIzDatoteke() {
+void UcitajNazivDatoteke() {
 	cout << "Naziv datoteke: ";
 	cin.ignore();
 	cin.getline(nazivDatotekeProblema, 100);
-	ifstream ulaznaDatoteka(nazivDatotekeProblema);
-	if (!ulaznaDatoteka.is_open()) {
+}
+
+bool ProcitajJavniProblem(char *nazivDatoteke) {
+	char *putDatoteke = new char[1000];
+	strcpy(putDatoteke, ".\\Instance problema\\");
+	strcat(putDatoteke, nazivDatoteke);
+	ifstream *ulaznaDatoteka = new ifstream(putDatoteke);
+	if (!ulaznaDatoteka->is_open()) {
 		return false;
 	}
-	char *linija = new char[10000];
+	char *broj = new char[10];
+	*(ulaznaDatoteka) >> broj;
+	brojAgenata = atoi(broj);
+	*(ulaznaDatoteka) >> broj;
+	brojPoslova = atoi(broj);
+	d = new int*[brojAgenata];
+	for (int i = 0; i < brojAgenata; i++) {
+		d[i] = new int[brojPoslova];
+		for (int j = 0; j < brojPoslova; j++) {
+			*(ulaznaDatoteka) >> broj;
+			d[i][j] = atoi(broj);
+		}
+	}
 
-	ulaznaDatoteka.getline(linija, 10000);
-	if (strcmp(linija, "AGENTI") == 0) {
-		ulaznaDatoteka.getline(linija, 10000);
-		brojAgenata = atoi(linija);
-		agenti = new Agent[brojAgenata];
-		char broj[10];
-		ulaznaDatoteka.getline(linija, 10000);
-		for (int i = 0, j = 0, a = 0; i < strlen(linija); i++) {
-			if (linija[i] != ',') {
-				broj[j++] = linija[i];
-			}
-			else {
-				broj[j] = 0;
-				agenti[a].ID = a;
-				agenti[a++].radnoVrijeme = atoi(broj);
-				j = 0;
-			}
+	int sumTezine = 0;
+	r = new int*[brojAgenata];
+	for (int i = 0; i < brojAgenata; i++) {
+		r[i] = new int[brojPoslova];
+		for (int j = 0; j < brojPoslova; j++) {
+			*(ulaznaDatoteka) >> broj;
+			r[i][j] = atoi(broj);
+			sumTezine += r[i][j];
 		}
 	}
-	ulaznaDatoteka.getline(linija, 10000);
-	if (strcmp(linija, "POSLOVI") == 0) {
-		ulaznaDatoteka.getline(linija, 10000);
-		brojPoslova = atoi(linija);
-		poslovi = new Posao[brojPoslova];
-		char broj[10];
-		ulaznaDatoteka.getline(linija, 10000);
-		for (int i = 0, j = 0, a = 0; i < strlen(linija); i++) {
-			if (linija[i] != ',') {
-				broj[j++] = linija[i];
-			}
-			else {
-				broj[j] = 0;
-				poslovi[a++].trajanje = atoi(broj);
-				j = 0;
-			}
-		}
+	int sumKapaciteta = 0;
+	agenti = new Agent[brojAgenata];
+	for(int i=0; i<brojAgenata; i++){
+		*(ulaznaDatoteka) >> broj;
+		agenti[i].radnoVrijeme = atoi(broj);
+		sumKapaciteta += agenti[i].radnoVrijeme;
+		agenti[i].ID = i;
 	}
-	ulaznaDatoteka.getline(linija, 10000);
-	if (strcmp(linija, "TROSKOVI") == 0) {
-		for (int k = 0; k < brojAgenata; k++) {
-			agenti[k].cijenePoslova = new int[brojPoslova];
-			ulaznaDatoteka.getline(linija, 10000);
-			char broj[10];
-			for (int i = 0, j = 0, c = 0; i < strlen(linija); i++) {
-				if (linija[i] != ',') {
-					broj[j++] = linija[i];
-				}
-				else {
-					broj[j] = 0;
-					agenti[k].cijenePoslova[c++] = atoi(broj);
-					j = 0;
-				}
-			}
-		}
-	}
-	ulaznaDatoteka.close();
+
+	cout << "Prosjek tezine: " << sumTezine / long double(brojPoslova*brojAgenata) << endl;
+	cout << "Prosjek tezine po agentu: " << sumTezine / long double(brojPoslova/(long double)brojAgenata) << endl;
+	cout << "Prosjek kapaciteta agenta: " << sumKapaciteta / long double(brojAgenata) << endl;
+	ulaznaDatoteka->close();
+	delete ulaznaDatoteka;
+	delete[] broj;
+	system("pause");
 	return true;
 }
 
 void HardkodiraniProblemZaTestiranje() {
+	strcpy(nazivDatotekeProblema, "hardkodirani.txt");
 	brojAgenata = 5;
 	agenti = new Agent[brojAgenata];
 	agenti[0].radnoVrijeme = 45;
+	agenti[0].ID = 0;
 	agenti[1].radnoVrijeme = 33;
+	agenti[1].ID = 1;
 	agenti[2].radnoVrijeme = 21;
+	agenti[2].ID = 2;
 	agenti[3].radnoVrijeme = 16;
+	agenti[3].ID = 3;
 	agenti[4].radnoVrijeme = 17;
+	agenti[4].ID = 4;
 
 	brojPoslova = 10;
 	poslovi = new Posao[brojPoslova];
@@ -432,123 +491,143 @@ void HardkodiraniProblemZaTestiranje() {
 	poslovi[9].trajanje = 7;
 
 	//postavljanje cijene (svaki agent ima cijene za sve poslove, isto kao što bi bilo prikazano u matrici)
-	agenti[0].cijenePoslova = new int[brojPoslova];
-	agenti[0].cijenePoslova[0] = 2;
-	agenti[0].cijenePoslova[1] = 4;
-	agenti[0].cijenePoslova[2] = 3;
-	agenti[0].cijenePoslova[3] = 8;
-	agenti[0].cijenePoslova[4] = 5;
-	agenti[0].cijenePoslova[5] = 18;
-	agenti[0].cijenePoslova[6] = 3;
-	agenti[0].cijenePoslova[7] = 1;
-	agenti[0].cijenePoslova[8] = 7;
-	agenti[0].cijenePoslova[9] = 9;
+	d = new int*[brojAgenata];
+	d[0] = new int[brojPoslova];
+	d[0][0] = 2;
+	d[0][1] = 4;
+	d[0][2] = 3;
+	d[0][3] = 8;
+	d[0][4] = 5;
+	d[0][5] = 18;
+	d[0][6] = 3;
+	d[0][7] = 1;
+	d[0][8] = 7;
+	d[0][9] = 9;
 
-	agenti[1].cijenePoslova = new int[brojPoslova];
-	agenti[1].cijenePoslova[0] = 8;
-	agenti[1].cijenePoslova[1] = 14;
-	agenti[1].cijenePoslova[2] = 3;
-	agenti[1].cijenePoslova[3] = 22;
-	agenti[1].cijenePoslova[4] = 4;
-	agenti[1].cijenePoslova[5] = 6;
-	agenti[1].cijenePoslova[6] = 1;
-	agenti[1].cijenePoslova[7] = 7;
-	agenti[1].cijenePoslova[8] = 12;
-	agenti[1].cijenePoslova[9] = 18;
+	d[1] = new int[brojPoslova];
+	d[1][0] = 8;
+	d[1][1] = 14;
+	d[1][2] = 3;
+	d[1][3] = 22;
+	d[1][4] = 4;
+	d[1][5] = 6;
+	d[1][6] = 1;
+	d[1][7] = 7;
+	d[1][8] = 12;
+	d[1][9] = 18;
 
-	agenti[2].cijenePoslova = new int[brojPoslova];
-	agenti[2].cijenePoslova[0] = 4;
-	agenti[2].cijenePoslova[1] = 6;
-	agenti[2].cijenePoslova[2] = 38;
-	agenti[2].cijenePoslova[3] = 4;
-	agenti[2].cijenePoslova[4] = 3;
-	agenti[2].cijenePoslova[5] = 8;
-	agenti[2].cijenePoslova[6] = 7;
-	agenti[2].cijenePoslova[7] = 3;
-	agenti[2].cijenePoslova[8] = 9;
-	agenti[2].cijenePoslova[9] = 9;
+	d[2] = new int[brojPoslova];
+	d[2][0] = 4;
+	d[2][1] = 6;
+	d[2][2] = 38;
+	d[2][3] = 4;
+	d[2][4] = 3;
+	d[2][5] = 8;
+	d[2][6] = 7;
+	d[2][7] = 3;
+	d[2][8] = 9;
+	d[2][9] = 9;
 
-	agenti[3].cijenePoslova = new int[brojPoslova];
-	agenti[3].cijenePoslova[0] = 7;
-	agenti[3].cijenePoslova[1] = 5;
-	agenti[3].cijenePoslova[2] = 12;
-	agenti[3].cijenePoslova[3] = 11;
-	agenti[3].cijenePoslova[4] = 3;
-	agenti[3].cijenePoslova[5] = 3;
-	agenti[3].cijenePoslova[6] = 19;
-	agenti[3].cijenePoslova[7] = 3;
-	agenti[3].cijenePoslova[8] = 2;
-	agenti[3].cijenePoslova[9] = 11;
+	d[3] = new int[brojPoslova];
+	d[3][0] = 7;
+	d[3][1] = 5;
+	d[3][2] = 12;
+	d[3][3] = 11;
+	d[3][4] = 3;
+	d[3][5] = 3;
+	d[3][6] = 19;
+	d[3][7] = 3;
+	d[3][8] = 2;
+	d[3][9] = 11;
 
-	agenti[4].cijenePoslova = new int[brojPoslova];
-	agenti[4].cijenePoslova[0] = 2;
-	agenti[4].cijenePoslova[1] = 8;
-	agenti[4].cijenePoslova[2] = 32;
-	agenti[4].cijenePoslova[3] = 7;
-	agenti[4].cijenePoslova[4] = 5;
-	agenti[4].cijenePoslova[5] = 16;
-	agenti[4].cijenePoslova[6] = 20;
-	agenti[4].cijenePoslova[7] = 1;
-	agenti[4].cijenePoslova[8] = 9;
-	agenti[4].cijenePoslova[9] = 2;
+	d[4] = new int[brojPoslova];
+	d[4][0] = 2;
+	d[4][1] = 8;
+	d[4][2] = 32;
+	d[4][3] = 7;
+	d[4][4] = 5;
+	d[4][5] = 16;
+	d[4][6] = 20;
+	d[4][7] = 1;
+	d[4][8] = 9;
+	d[4][9] = 2;
 }
 
-void PostaviFeromoneNaTauMAX() {
+int PronadiNajmanjuCijenu() {
+	int min_i = 0, min_j = 0;
 	for (int i = 0; i < brojAgenata; i++) {
 		for (int j = 0; j < brojPoslova; j++) {
-			feromoni[i][j] = tauMAX;
+			if (d[i][j] < d[min_i][min_j]) {
+				min_i = i;
+				min_j = j;
+			}
 		}
 	}
-	cout << "RESETIRAO FEROMONE" << endl;
+	return d[min_i][min_j];
+}
+
+void PostaviFeromoneNaTauMAX(int heuristika) {
+	int mnozitelj = 1;
+	if (heuristika == HEURISTICNO_DIJ)
+		mnozitelj = PronadiNajmanjuCijenu();
+	for (int i = 0; i < brojAgenata; i++) {
+		for (int j = 0; j < brojPoslova; j++) {
+			if(heuristika == HEURISTICNO_DIJ)
+				feromoni[i][j] = tauMAX*(mnozitelj/(long double)(d[i][j]));//niže cijene dobiju veæu kolièinu feromona na poèetku od viših cijena
+			else if(heuristika == NEHEURISTICNO)
+				feromoni[i][j] = tauMAX;
+		}
+	}
+	//cout << "RESETIRAO FEROMONE" << endl;
 }
 
 void init() {
-	//zasad je inicijalizacija hardkodirana, kasnije æu napraviti išèitavanje problema iz datoteke
-	/*
-	tauMAX = 0.7;
-	tauMIN = 0.22;
-	*/
-	param_RO = 0.02;
-	param_a = 5;
-	//podaci za 5000 iteracija:
-	//kada je param_a = 1  onda polovica instanci rješenja bude = 27
-	//kada je param_a = 10 onda veæina instanci rješenja bude = 27
-	//kada je param_a = 18 onda gotovo sve instance rješenja budu = 27
-	/*
-	
-	*/
+	ukupanBrojIsplativih = 0;
+	ukupanBrojNeisplativih = 0;
 
+	memset(svaRjesenja, 0, 100000 * sizeof(int));
+	memset(najboljaRjesenja, 0, 100000 * sizeof(int));
+	memset(svaIsplativaRjesenja, 0, 100000 * sizeof(int));
+	srand(time(0) % 32768);
+	rand();
+	brojNeisplativihRjesenja = 0;
+	param_RO = 0.02;
+	param_a = 50;
+	neisplativoMult = 2;
+	isplativoMult = 20;
+	
 	feromoni = new long double*[brojAgenata];//alociramo pokazivaèe za redove
 	for (int i = 0; i<brojAgenata; i++) {
 		feromoni[i] = new long double[brojPoslova];//alociramo redove pomoæu pokazivaèa
 		for (int j = 0; j<brojPoslova; j++)//odmah prilikom alokacije
 			feromoni[i][j] = 0.99;//iniciramo sve vrijednosti matrice na proizovljno visoku vrijednost (nisam siguran kako ovo treba)
 	}
-	IspisiStanjeFeromona();
+	//IspisiStanjeFeromona();
 
 
-	broj_mrava = brojAgenata;//ZASADA, BROJ MRAVI OVISI O BROJU AGENATA
+	broj_mrava = 650; //((brojAgenata+brojPoslova)/2)/6;//broj mravi aritmetièka sredina broja agenata i poslova podjeljena sa 6
 	mravi = new Mrav[broj_mrava];
 	SortirajAgentePoKapacitetu();//pomaže pri ubrzanju algoritma kasnije
-									 //N^k¢i (skup agenata kojima se može dodijeliti trenutni posao) je najlakše odrediti
-									 //ako je polje agenata sortirano prema preostalom kapacitetu, stoga se odmah nakon uèitavanja agenata to polje sortira
+	//N^k¢i (skup agenata kojima se može dodijeliti trenutni posao) je najlakše odrediti
+	//ako je polje agenata sortirano prema preostalom kapacitetu, stoga se odmah nakon uèitavanja agenata to polje sortira
 
 	Mrav::PostaviStatickaPolja();//nakon što su agenti sortirani, možemo postaviti statièka "inicijalna (proširena) polja"
 	najboljeRjesenjeDosad = new Dodjela[brojPoslova];
 	//poèetna iteracija (koja služi za postavljanje tauMAX i shodno tome tauMIN)
 	for (int i = 0; i < broj_mrava; i++) {
 		mravi[i].GenerirajRjesenje();
+		int pom;
 	}
-	int najboljiMravDosad = PronadiNajboljegMrava(PRESKOCI_NEISPLATIVA_RJESENJA);
+	int najboljiMravDosad = PronadiNajboljegMrava(UKLJUCI_NEISPLATIVA_RJESENJA);
 	memcpy(najboljeRjesenjeDosad, mravi[najboljiMravDosad].rjesenje, sizeof(Dodjela)*brojPoslova);
 	najmanjiTrosakDosad = mravi[najboljiMravDosad].trosakRjesenja;
 
-
+	int medu = param_RO * najmanjiTrosakDosad;
 	tauMAX = 1 / (param_RO * najmanjiTrosakDosad);
 	tauMIN = tauMAX / param_a;
 
-	PostaviFeromoneNaTauMAX();
-	
+	PostaviFeromoneNaTauMAX(HEURISTICNO_DIJ);
+
 	initTauMax = tauMAX;
 	initTauMin = tauMIN;
 	cout << "NAJMANI TROSAK U INIT = " << najmanjiTrosakDosad << endl;
@@ -557,7 +636,7 @@ void init() {
 	cout << "param_RO = " << param_RO << endl;
 	cout << "param_a = " << param_a << endl;
 
-	IspisiStanjeFeromona();
+	//IspisiStanjeFeromona();
 }
 
 void SortirajRjesenjePremaAgentima() {
@@ -577,7 +656,7 @@ void IspisiRjesenjeProblema() {
 	cout << "-----------------------------" << endl;
 	cout << "ALGORITAM ZAVRŠEN" << endl;
 	cout << "MATRICA FEROMONSKIH TRAGOVA:" << endl;
-	IspisiStanjeFeromona();
+	//IspisiStanjeFeromona();
 
 	cout << "tauMAX = " << tauMAX << endl;
 	cout << "tauMIN = " << tauMIN << endl;
@@ -605,7 +684,7 @@ void IspisiRjesenjeProblema() {
 void GenerirajMatricuTroskova(ofstream *izlaznaDatoteka, int brojAgenata, int brojPoslova, int min, int max) {
 	for (int i = 0; i < brojAgenata; i++) {
 		for (int j = 0; j < brojPoslova; j++) {
-			*izlaznaDatoteka << rand() % (max-min) + min << ",";
+			*izlaznaDatoteka << rand() % (max - min) + min << ",";
 		}
 		*izlaznaDatoteka << endl;
 	}
@@ -651,12 +730,10 @@ int UkupnaTezinaPoslova() {
 
 
 char *UkloniEkstenziju(char *nazivDatoteke) {
-	char *kopija = new char[strlen(nazivDatoteke)+5];
-	int d = strlen(kopija);
-	d = strlen(nazivDatoteke);
-	//strcpy_s(kopija, nazivDatoteke);
+	char *kopija = new char[strlen(nazivDatoteke) + 5];
 	strcpy(kopija, nazivDatoteke);
-	kopija[strlen(kopija) - 4] = 0;
+	if(strlen(nazivDatoteke) >= 4 && nazivDatoteke[strlen(nazivDatoteke)-4] == '.')
+		kopija[strlen(kopija) - 4] = 0;
 	return kopija;
 }
 
@@ -691,30 +768,41 @@ void ZapisiRjesenjeProblemaUDatoteku(time_t *pocetak, time_t *kraj) {
 	strcat(nazivIzlazneDatoteke, ".\\Instance rjesenja\\test ");
 	char *pom = UkloniEkstenziju(nazivDatotekeProblema);
 	strcat(nazivIzlazneDatoteke, pom);
-	strcat(nazivIzlazneDatoteke, "  ");
+  strcat(nazivIzlazneDatoteke, "  ");
 	char buffer[30];
 	strftime(buffer, 80, "%Y-%m-%d  %Hh %Mm %Ss", timeInfoPocetak);
 	strcat(nazivIzlazneDatoteke, buffer);
+	if(prekoNoci){
+		char *brojIteracija = new char[50];
+		_itoa(iter_max, brojIteracija, 10);
+		strcat(nazivIzlazneDatoteke, " NOÆ");
+		strcat(nazivIzlazneDatoteke, brojIteracija);
+		char buff[15];
+		strftime(buff, 15, "%M%S", paljenjePrograma);
+		strcat(nazivIzlazneDatoteke, "_");
+		strcat(nazivIzlazneDatoteke, buff);
+		delete[] brojIteracija;
+	}
 	strcat(nazivIzlazneDatoteke, " (");
 	strcat(nazivIzlazneDatoteke, rezultatRjesenja);
 	strcat(nazivIzlazneDatoteke, ")");
 	strcat(nazivIzlazneDatoteke, ".txt");
-	//strcat
+	
 
 	ofstream izlaznaDatoteka(nazivIzlazneDatoteke);
 
-	izlaznaDatoteka << fixed << setprecision(4);
+	izlaznaDatoteka << fixed << setprecision(8);
 	izlaznaDatoteka << "--------------------------------------------------" << endl;
 	izlaznaDatoteka << "   FOI Završni rad, mentor dr.sc. N. Ivkoviæ" << endl;
 	izlaznaDatoteka << "     MMAS-GAP Algoritam, Tomislav Èivèija" << endl;
 	izlaznaDatoteka << "--------------------------------------------------" << endl;
-	izlaznaDatoteka << "      Instanca rješenja problema \"" << pom << "\""<< endl;
+	izlaznaDatoteka << "      Instanca rješenja problema \"" << pom << "\"" << endl;
 	izlaznaDatoteka << "--------------------------------------------------" << endl;
 	izlaznaDatoteka << "Kratki opis problema" << endl;
 	izlaznaDatoteka << "BROJ AGENATA  " << brojAgenata << endl;
 	izlaznaDatoteka << "BROJ POSLOVA  " << brojPoslova << endl;
-	izlaznaDatoteka << "UKUPAN KAPACITET AGENATA  " << UkupniKapacitetAgenata() <<endl;
-	izlaznaDatoteka << "UKUPNA TEŽINA POSLOVA  " << UkupnaTezinaPoslova() <<endl;
+	izlaznaDatoteka << "UKUPAN KAPACITET AGENATA  " << UkupniKapacitetAgenata() << endl;
+	//izlaznaDatoteka << "UKUPNA TEŽINA POSLOVA  " << UkupnaTezinaPoslova() << endl;
 	izlaznaDatoteka << "--------------------------------------------------" << endl;
 	izlaznaDatoteka << "Vremenske odrednice instance" << endl;
 	izlaznaDatoteka << "POÈETAK \t" << bufferPocetak << endl;
@@ -726,6 +814,8 @@ void ZapisiRjesenjeProblemaUDatoteku(time_t *pocetak, time_t *kraj) {
 	izlaznaDatoteka << "param_a  " << param_a << endl;
 	izlaznaDatoteka << "iter_max  " << iter_max << endl;
 	izlaznaDatoteka << "broj_mrava  " << broj_mrava << endl;
+	izlaznaDatoteka << "isplativoMult  " << isplativoMult << endl;
+	izlaznaDatoteka << "neisplativoMult  " << neisplativoMult << endl;
 	izlaznaDatoteka << "--------------------------------------------------" << endl;
 	izlaznaDatoteka << "Inicijalni korak" << endl;
 	izlaznaDatoteka << "initTauMax  " << initTauMax << endl;
@@ -740,17 +830,17 @@ void ZapisiRjesenjeProblemaUDatoteku(time_t *pocetak, time_t *kraj) {
 	izlaznaDatoteka << "Završni korak" << endl;
 	izlaznaDatoteka << "tauMAX  " << tauMAX << endl;
 	izlaznaDatoteka << "tauMIN  " << tauMIN << endl;
+	izlaznaDatoteka << "brojNeisplativihRjesenja  " << brojNeisplativihRjesenja << endl;
+	izlaznaDatoteka << "ukupanBrojNeisplativihRjesenja  " << ukupanBrojNeisplativih << endl;
+	izlaznaDatoteka << "ukupanBrojIsplativihRjesenja  " << ukupanBrojIsplativih << endl;
+
 	izlaznaDatoteka << "--------------------------------------------------" << endl;
 	izlaznaDatoteka << "" << endl;
 
 	izlaznaDatoteka << endl;
 
 
-
-
-
-
-	//SortirajRjesenjePremaAgentima();
+	SortirajRjesenjePremaAgentima();
 	//for (int i = 0; i < brojPoslova; i++)
 	//	cout << "A " << najboljeRjesenjeDosad[i].agent << "-> P" << najboljeRjesenjeDosad[i].posao << endl;
 	izlaznaDatoteka << endl << "ISPIS DODJELA: " << endl;
@@ -758,17 +848,16 @@ void ZapisiRjesenjeProblemaUDatoteku(time_t *pocetak, time_t *kraj) {
 	for (int i = 0, k = 0; i < brojAgenata; i++) {
 		sumaKapaciteta = 0;
 
-		agent = najboljeRjesenjeDosad[k].agent;
+		//agent = najboljeRjesenjeDosad[k].agent;
 		izlaznaDatoteka << "AGENT " << i << " : ";
 		while (najboljeRjesenjeDosad[k].agent == i) {
-			sumaKapaciteta += poslovi[najboljeRjesenjeDosad[k].posao].trajanje;
-			izlaznaDatoteka << "P" <<najboljeRjesenjeDosad[k].posao;
+			sumaKapaciteta += r[najboljeRjesenjeDosad[k].agent][najboljeRjesenjeDosad[k].posao];
+			izlaznaDatoteka << "P" << najboljeRjesenjeDosad[k].posao;
 			if (najboljeRjesenjeDosad[k].agent == najboljeRjesenjeDosad[k + 1].agent)
 				izlaznaDatoteka << ", ";
 			k++;
-			//++].posao << " ";
 		}
-		izlaznaDatoteka << "("<< sumaKapaciteta<<"/"<<agenti[i].radnoVrijeme << ")"<< endl;
+		izlaznaDatoteka << "(" << sumaKapaciteta << "/" << agenti[i].radnoVrijeme << ")" << endl;
 	}
 
 	izlaznaDatoteka << "Najniži trošak (rješenje) iznosi: " << najmanjiTrosakDosad << endl;
@@ -780,57 +869,111 @@ void ZapisiRjesenjeProblemaUDatoteku(time_t *pocetak, time_t *kraj) {
 	for (int i = 0; i < brojPoslova; i++) {
 		izlaznaDatoteka << "P" << i + 1 << "\t";
 	}
+	int brojVisokih = 0;
 	izlaznaDatoteka << endl << endl;
 	for (int i = 0; i < brojAgenata; i++) {
 		izlaznaDatoteka << "A" << i + 1 << "\t";
 		for (int j = 0; j < brojPoslova; j++) {
+			if (tauMAX * 0.75 < feromoni[i][j])
+				brojVisokih++;
 			izlaznaDatoteka << feromoni[i][j] << "\t";
 		}
 		izlaznaDatoteka << endl << endl;
 	}
 
+	izlaznaDatoteka << "BROJ VISOKIH POSTOTAKA tauMAX/2 = " << brojVisokih  << endl;
+	izlaznaDatoteka << "SVA RJESENJA" << endl;
 
-	izlaznaDatoteka << "" << endl;
-
+	for (int i = 0; i < 100000; i++) {
+		if (svaRjesenja[i] != 0)
+			izlaznaDatoteka << " " << i << " " << svaRjesenja[i] << endl;
+	}
+	izlaznaDatoteka << "SVA ISPLATIVA RJESENJA:" << endl;
+	for (int i = 0; i < 100000; i++) {
+		if (svaIsplativaRjesenja[i] != 0)
+			izlaznaDatoteka << " " << i << " " << svaIsplativaRjesenja[i] << endl;
+	}
 	izlaznaDatoteka.close();
 	delete[] pom;
+	
+	char *pozivanjeNotepada = new char[1000];
+	pozivanjeNotepada[0] = 0;
+	strcat(pozivanjeNotepada, "notepad '");
+	strcat(pozivanjeNotepada, nazivIzlazneDatoteke);
+	strcat(pozivanjeNotepada, "'");
+	system(pozivanjeNotepada);
+	
 }
 
-void PokreniAlgoritam() {
+void PokreniAlgoritam(bool prekoNoci = false) {
 
-	cout << fixed << setprecision(3);
+	cout << fixed << setprecision(2);
 	srand(time(0) % 32768);
 	rand();
 	//init();
-	cout << "Koliko iteracija želite: ";
-	cin >> iter_max;
-
+	if (prekoNoci == false) {
+		cout << "Koliko iteracija želite: ";
+		cin >> iter_max;
+	}
+	//cout << "Napredak pretrage   0.00 %";
 	time_t  pocetak;
 	time(&pocetak);
 	int najboljiMravIteracije;
-	int frekvencija = iter_max / 7;
+	int frekvencija = (iter_max / 5) + 1;
+	float deset_t = 0.01;
+	float pocetni = deset_t;
+
 	for (int iter = 1; iter < iter_max; iter++) {
-		if (iter%frekvencija == 0) {//resetiranje feromona tri puta kroz algoritam (UÈINKOVITO)
-			PostaviFeromoneNaTauMAX();
+		
+		if (pocetni < (((float)iter) / iter_max) * 100) {
+			//cout << (char)8 << (char)8 << (char)8 << (char)8 << (char)8 << (char)8;
+			//if ((((float)iter) / iter_max) * 100 >= 10) cout << (char)8;
+			cout << (char)13 << (((float)iter) / iter_max) * 100 << " %";
+			pocetni += deset_t;
 		}
+
+		if (iter%frekvencija == 0) {//resetiranje feromona tri puta kroz algoritam (UÈINKOVITO)
+			//param_a *= 1.15;
+			//tauMIN = tauMAX / param_a;
+			//PostaviFeromoneNaTauMAX();
+			//cout << ": tau - MAX reset" << endl;
+		}
+		
 		for (int m = 0; m<broj_mrava; m++) {
 			mravi[m].GenerirajRjesenje();
+			svaRjesenja[mravi[m].trosakRjesenja]++;
+			if (!mravi[m].nesiplativoRjesenje)
+				svaIsplativaRjesenja[mravi[m].trosakRjesenja]++;
 		}
 
 		najboljiMravIteracije = PronadiNajboljegMrava(UKLJUCI_NEISPLATIVA_RJESENJA);
 		//cout << "Najbolje rješenje iteracije: " << mravi[najboljiMravIteracije].trosakRjesenja << endl;
-		
-		if (!mravi[najboljiMravIteracije].nesiplativoRjesenje && mravi[najboljiMravIteracije].trosakRjesenja < najmanjiTrosakDosad) {//ako je rješenje iteracije bolje od najboljeg dosada:
+
+		if (
+			!mravi[najboljiMravIteracije].nesiplativoRjesenje && 
+			mravi[najboljiMravIteracije].trosakRjesenja < najmanjiTrosakDosad) {//ako je rješenje iteracije bolje od najboljeg dosada:
+
 			memcpy(najboljeRjesenjeDosad, mravi[najboljiMravIteracije].rjesenje, sizeof(Dodjela)*brojPoslova);//zapisujemo to rješenje
 			najmanjiTrosakDosad = mravi[najboljiMravIteracije].trosakRjesenja;//bilježimo nejgov rezultat
 			tauMAX = 1 / (param_RO*najmanjiTrosakDosad);//podešavamo tauMAX i tauMIN
-			tauMIN = tauMAX /param_a;
+			tauMIN = tauMAX / param_a;
+			cout << (char)13 << "NNR=" << najmanjiTrosakDosad << endl;
 			//cout << "Imamo novo najbolje dosadašnje rješenje iteracije: " << najmanjiTrosakDosad << endl;
 			//IspisiStanjeFeromona();
 		}
+
+		
+		//cout << "/////////////PRIJE/////////////"<<endl;
+		//IspisiStanjeFeromona(7,5);
 		SimulirajHlapljenjeFeromona();
 		NagradiNajboljeg(najboljiMravIteracije);
+		//cout << "/////////////POSLIJE/////////////"<<endl;
+		//IspisiStanjeFeromona(7,5);
+		//system("pause");
+		
 	}
+	//cout << (char)13 << "Napredak pretrage   100.00 %" << endl;
+	cout << setprecision(3);
 	SortirajAgentePoOznaci();
 	time_t kraj;
 	time(&kraj);
@@ -861,47 +1004,202 @@ void PokreniAlgoritam() {
 
 	ZapisiRjesenjeProblemaUDatoteku(&pocetak, &kraj);
 
-
-
-
 	delete[] najboljeRjesenjeDosad;
 	for (int i = 0; i < brojAgenata; i++) {
-		delete[] agenti[i].cijenePoslova;
 		delete[] feromoni[i];
 	}
 	delete[] feromoni;
-	delete[] poslovi;
+	//delete[] poslovi;
 	delete[] mravi;
 	delete[] Mrav::inicijalniAgenti;
-	delete[] Mrav::inicijalniPoslovi;
+}
+
+void RadiPrekoNoci() {
+	cout << "Koliko iteracija zelite preko noci: ";
+	cin >> iter_max;
+	while (1) {
+		//ProcitajProblemIzDatoteke(nazivDatotekeProblema);
+		init();
+		PokreniAlgoritam(true);
+	}
+}
+
+
+void TestiranjeVjerojatnosti() {
+	strcpy(nazivDatotekeProblema, "_test_vjerojatnosti.txt");
+	bool stanjeDatoteke = ProcitajJavniProblem(nazivDatotekeProblema);
+	if (stanjeDatoteke == false) {
+		cout << "Pogreska pri otvaranju datoteke" << endl;
+		return;
+	}
+	//
+	feromoni = new long double*[brojAgenata];//alociramo pokazivaèe za redove
+	for (int i = 0; i<brojAgenata; i++) {
+		feromoni[i] = new long double[brojPoslova];//alociramo redove pomoæu pokazivaèa
+		for (int j = 0; j<brojPoslova; j++)//odmah prilikom alokacije
+			feromoni[i][j] = d[i][j];//iniciramo sve vrijednosti matrice na proizovljno visoku vrijednost (nisam siguran kako ovo treba)
+	}
+	//IspisiStanjeFeromona();
+
+
+	broj_mrava = 10; //((brojAgenata+brojPoslova)/2)/6;//broj mravi aritmetièka sredina broja agenata i poslova podjeljena sa 6
+	mravi = new Mrav[broj_mrava];
+	SortirajAgentePoKapacitetu();//pomaže pri ubrzanju algoritma kasnije
+															 //N^k¢i (skup agenata kojima se može dodijeliti trenutni posao) je najlakše odrediti
+															 //ako je polje agenata sortirano prema preostalom kapacitetu, stoga se odmah nakon uèitavanja agenata to polje sortira
+
+	Mrav::PostaviStatickaPolja();
+
+	//
+	int* *vjerojatnosti;
+	vjerojatnosti = new int*[brojAgenata];
+	for (int i = 0; i < brojAgenata; i++) {
+		vjerojatnosti[i] = new int[brojPoslova];
+		for (int j = 0; j < brojPoslova; j++) {
+			vjerojatnosti[i][j] = 0;
+		}
+	}
+	IspisiStanjeFeromona();
+	cout << endl;
+	system("pause");
+	cout << endl;
+	int iter;
+	cout << "Broj iteracija: ";
+	cin >> iter;
+	for (int i = 0; i < iter; i++) {
+		for (int j = 0; j < broj_mrava; j++) {
+			mravi[j].GenerirajRjesenje();
+			for (int k = 0; k < brojPoslova; k++) {
+				vjerojatnosti[mravi[j].rjesenje[k].agent][mravi[j].rjesenje[k].posao]++;
+			}
+		}
+	}
+	IspisiStanjeFeromona();
+	cout << "VJEROJATNOSTI NA KRAJU: "<<endl;
+	cout << fixed << setprecision(6) << endl;
+	cout << "    ";
+	for (int i = 0; i<brojPoslova; i++)
+		cout << "P" << i + 1 << "    ";
+	cout << endl << endl;
+	for (int i = 0; i<brojAgenata; i++) {
+		cout << "A" << i + 1 << "  ";
+		for (int j = 0; j<brojPoslova; j++)
+			cout << vjerojatnosti[i][j] << "  ";
+		cout << endl;
+	}
+	cout << endl;
+
+	for (int i = 0; i < brojAgenata; i++) {
+		delete[] feromoni[i];
+	}
+	delete[] feromoni;
+	//delete[] poslovi;
+	delete[] mravi;
+	delete[] Mrav::inicijalniAgenti;
 }
 
 int main() {
-	int izbor;
+	svaRjesenja = new int[100000];
+	memset(svaRjesenja, 0, 100000 * sizeof(int));
+	najboljaRjesenja = new int[100000];
+	memset(najboljaRjesenja, 0, 100000 * sizeof(int));
+	svaIsplativaRjesenja = new int[100000];
+	memset(najboljaRjesenja, 0, 100000 * sizeof(int));
+	paljenjePrograma = new tm;
+	time_t pocetakPrograma;
+	time(&pocetakPrograma);
+	localtime_s(paljenjePrograma, &pocetakPrograma);
+	int izbor, izborJavneDatoteke;
 	bool stanjeDatoteke = true;
 	do {
 		cout << "0 Izlaz iz programa" << endl;
 		cout << "1 Gen. random matricu" << endl;
 		cout << "2 Pokreni algoritam" << endl;
+		cout << "3 Obraduj preko noci" << endl;
+		cout << "4 Hardkodirani primjer" << endl;
+		cout << "5 Javni problem (C-tezina)" << endl;
+		cout << "6 Testiranje vjerojatnosti" << endl;
 		cout << "  Izbor: ";
 		cin >> izbor;
 		switch (izbor) {
-			case 0: break;
-			case 1: GeneriranjeProblema(); break;
-			case 2: 
-
-				stanjeDatoteke = ProcitajProblemIzDatoteke();
-				if (stanjeDatoteke == false) {
-					cout << "Pogreska pri otvaranju datoteke" << endl;
-					break;
+		case 0: break;
+		case 1: GeneriranjeProblema(); break;
+		case 2:
+			/*
+			UcitajNazivDatoteke();
+			//stanjeDatoteke = ProcitajProblemIzDatoteke(nazivDatotekeProblema);
+			if (stanjeDatoteke == false) {
+				cout << "Pogreska pri otvaranju datoteke" << endl;
+				break;
+			}
+			//HardkodiraniProblemZaTestiranje();
+			init();
+			PokreniAlgoritam();
+			*/
+			break;
+		case 3:
+			/*
+			prekoNoci = true;
+			UcitajNazivDatoteke();
+			RadiPrekoNoci();
+			*/
+			break;
+		case 4:
+			HardkodiraniProblemZaTestiranje();
+			init();
+			PokreniAlgoritam();
+		case 5:
+			do{
+				cout <<endl<<endl<< "Odabir problema"<<endl;
+				cout << "1. c05100" << endl;
+				cout << "2. c10100" << endl;
+				cout << "3. c20100" << endl;
+				cout << "4. c05200" << endl;
+				cout << "5. c10200" << endl;
+				cout << "6. c20200" << endl;
+				cout << "7. Neki drugi problem" << endl;
+				cout << "8. c05007" << endl;
+				cout << " Izbor: ";
+				cin >> izborJavneDatoteke;
+				switch (izborJavneDatoteke) {
+					case 1: 
+						strcpy(nazivDatotekeProblema, "c05100"); break;
+					case 2:
+						strcpy(nazivDatotekeProblema, "c10100"); break;
+					case 3:
+						strcpy(nazivDatotekeProblema, "c20100"); break;
+					case 4:
+						strcpy(nazivDatotekeProblema, "c05200"); break;
+					case 5:
+						strcpy(nazivDatotekeProblema, "c10200"); break;
+					case 6:
+						strcpy(nazivDatotekeProblema, "c20200"); break;
+					case 7:
+						UcitajNazivDatoteke(); break;
+					case 8:
+						strcpy(nazivDatotekeProblema, "c05007"); break;
+					default:
+						cout << "Pogresan unos!";
 				}
-				//HardkodiraniProblemZaTestiranje();
-				init();
-				PokreniAlgoritam();
+			} while (izborJavneDatoteke < 1 && izborJavneDatoteke > 7);
+			stanjeDatoteke = ProcitajJavniProblem(nazivDatotekeProblema);
+			if (stanjeDatoteke == false) {
+				cout << "Pogreska pri otvaranju datoteke" << endl;
+				break;
+			}
+			init();
+			PokreniAlgoritam();
+			break;
+		case 6:
+			TestiranjeVjerojatnosti();
+			break;
 		}
 		system("pause");
 		system("cls");
 	} while (izbor != 0);
-
+	delete[] svaRjesenja;
+	delete[] najboljaRjesenja;
+	delete[] svaIsplativaRjesenja;
 	return 0;
 }
+
