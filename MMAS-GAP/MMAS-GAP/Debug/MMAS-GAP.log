@@ -1,8 +1,8 @@
 ﻿  MMAS-GAP.cpp
-c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(625): warning C4244: 'initializing': conversion from 'long double' to 'int', possible loss of data
-c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(619): warning C4101: 'pom': unreferenced local variable
-c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(754): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
-c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(847): warning C4101: 'agent': unreferenced local variable
-c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(923): warning C4305: 'initializing': truncation from 'double' to 'float'
-c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(993): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(406): warning C4244: 'initializing': conversion from 'long double' to 'int', possible loss of data
+c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(400): warning C4101: 'pom': unreferenced local variable
+c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(493): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(582): warning C4101: 'agent': unreferenced local variable
+c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(659): warning C4305: 'initializing': truncation from 'double' to 'float'
+c:\users\asus\desktop\završni\mmas_gap\mmas_gap-zavrsni-rad\mmas-gap\mmas-gap\mmas-gap.cpp(728): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
   MMAS-GAP.vcxproj -> C:\Users\Asus\Desktop\završni\MMAS_GAP\MMAS_GAP-Zavrsni-rad\MMAS-GAP\Debug\MMAS-GAP.exe
